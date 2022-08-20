@@ -1,0 +1,61 @@
+type (
+    {{ .NamingPrefix }}Request struct {
+	    Model {{ .InputModel }}
+    }
+    {{ .NamingPrefix }}Response struct {
+		Model {{ .OutputModel }}
+    }
+	{{ .NamingPrefix }}Handler struct {
+		Service {{ .NamingPrefix }}ServiceFunc
+		registerOnce sync.Once
+	}
+    {{ .NamingPrefix }}ServiceFunc = func(context.Context {{- if .HasInputParam}}, {{.InputModel}}{{end}}) ({{ .OutputModel }}{{if .HasInputParam}}, error{{end}})
+)
+
+
+func New{{ .NamingPrefix }}Handler(service {{ .NamingPrefix }}ServiceFunc) *{{ .NamingPrefix }}Handler {
+	return &{{ .NamingPrefix }}Handler{
+		Service: service,
+	}
+}
+
+func (h *{{ .NamingPrefix }}Handler) Register(router *mux.Router) {
+	h.registerOnce.Do(func() {
+		router.Handle("{{ .Path }}", h){{if .HasMethod}}.
+			Methods(
+				{{range $val := .Methods}}"{{$val}}",{{end}}
+			)
+			{{- end}}
+	})
+}
+
+
+func (h *{{ .NamingPrefix }}Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	req := new({{ .NamingPrefix }}Request)
+	if err := req.Decode(r); err != nil {
+		kick.WriteError(w, err)
+		return
+	}
+
+	result, err := h.Service(ctx, req.Model)
+	if err != nil {
+		kick.WriteError(w, err)
+		return
+	}
+
+	resp := new({{ .NamingPrefix }}Response)
+	resp.Model = result
+	if err := resp.Encode(&w); err != nil {
+		kick.WriteError(w, err)
+		return
+	}
+}
+
+func (r *{{ .NamingPrefix }}Request) Decode(req *http.Request) error {
+	return kick.UnmarshalJSON(req.Body, &r.Model)
+}
+
+func (r *{{ .NamingPrefix }}Response) Encode(w *http.ResponseWriter) error {
+	return kick.MarshalJSON(*w, &r.Model)
+}
